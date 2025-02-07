@@ -1,154 +1,98 @@
 <!-- public/index.html -->
 <!DOCTYPE html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <title>Messenger App (async/await)</title>
-    <style>
-      /* Basic styling for the messenger app */
-      body {
-        font-family: Arial, sans-serif;
-        background-color: #f2f2f2;
-        margin: 0;
-        padding: 0;
-      }
-      #chat {
-        width: 500px;
-        margin: 50px auto;
-        background-color: #fff;
-        border: 1px solid #ccc;
-        padding: 20px;
-        box-shadow: 0 0 10px rgba(0,0,0,0.1);
-      }
-      #messages {
-        list-style-type: none;
-        padding: 0;
-        max-height: 300px;
-        overflow-y: auto;
-        margin-bottom: 20px;
-      }
-      #messages li {
-        padding: 8px 10px;
-        border-bottom: 1px solid #eee;
-      }
-      .input-container {
-        display: flex;
-        gap: 10px;
-        margin-bottom: 10px;
-      }
-      .input-container input[type="text"] {
-        flex: 1;
-        padding: 10px;
-        border: 1px solid #ccc;
-        border-radius: 3px;
-      }
-      #sendBtn {
-        padding: 10px 20px;
-        border: none;
-        background-color: #007bff;
-        color: #fff;
-        border-radius: 3px;
-        cursor: pointer;
-      }
-      #sendBtn:hover {
-        background-color: #0056b3;
-      }
-    </style>
-  </head>
-  <body>
-    <div id="chat">
-      <ul id="messages"></ul>
-      <!-- Input fields (without using a <form> element) -->
-      <div class="input-container">
-        <input id="username" type="text" placeholder="Your name" required />
-      </div>
-      <div class="input-container">
-        <input
-          id="message"
-          type="text"
-          placeholder="Type your message"
-          required
-          autocomplete="off"
-        />
-        <button id="sendBtn" type="button">Send</button>
-      </div>
-    </div>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Reaction Timer</title>
+  <style>
+    body {
+      text-align: center;
+      font-family: sans-serif;
+      margin-top: 50px;
+    }
+    #timerButton {
+      width: 200px;
+      height: 200px;
+      font-size: 24px;
+      border: none;
+      border-radius: 50%;
+      color: white;
+    }
+    .waiting { background-color: green; }
+    .go { background-color: red; }
+    #startButton {
+      margin-top: 20px;
+      font-size: 18px;
+      padding: 10px 20px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Reaction Timer</h1>
+  <p id="info"></p>
+  <button id="timerButton" class="waiting" disabled>Wait...</button>
+  <p id="result"></p>
+  <p id="fastest"></p>
+  <button id="startButton">Start Round</button>
 
-    <script>
-      // DOM element references
-      const usernameInput = document.getElementById("username");
-      const messageInput = document.getElementById("message");
-      const sendBtn = document.getElementById("sendBtn");
-      const messagesList = document.getElementById("messages");
+  <!-- Load Socket.IO from the server -->
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const socket = io();
 
-      /**
-       * Asynchronously fetches all messages from the server and updates the messages list.
-       */
-      async function fetchMessages() {
-        try {
-          const response = await fetch("/messages");
-          if (!response.ok) {
-            throw new Error(`HTTP error! Status: ${response.status}`);
-          }
-          const data = await response.json();
-          // Clear and update the messages list
-          messagesList.innerHTML = "";
-          data.messages.forEach((msg) => {
-            const li = document.createElement("li");
-            li.textContent = `${msg.username}: ${msg.message}`;
-            messagesList.appendChild(li);
-          });
-          // Scroll to the bottom of the list
-          messagesList.scrollTop = messagesList.scrollHeight;
-        } catch (error) {
-          console.error("Error fetching messages:", error);
-        }
-      }
+    let userName = null;
+    const info = document.getElementById('info');
+    const timerButton = document.getElementById('timerButton');
+    const resultP = document.getElementById('result');
+    const fastestP = document.getElementById('fastest');
+    const startButton = document.getElementById('startButton');
 
-      /**
-       * Asynchronously sends a new message to the server.
-       */
-      async function sendMessage() {
-        const username = usernameInput.value.trim();
-        const message = messageInput.value.trim();
+    // Receive the welcome message and display the user ID.
+    socket.on('welcome', (data) => {
+      userName = data.user;
+      info.innerText = 'Your ID: ' + userName;
+    });
 
-        // Do not send if username or message is empty.
-        if (!username || !message) {
-          return;
-        }
+    // When the "Start Round" button is clicked, notify the server.
+    startButton.addEventListener('click', () => {
+      // Reset the UI for a new round.
+      resultP.innerText = '';
+      timerButton.innerText = 'Wait...';
+      timerButton.className = 'waiting';
+      timerButton.disabled = true;
+      // Tell the server to start the round.
+      socket.emit('start');
+    });
 
-        try {
-          const response = await fetch("/messages", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({ username, message }),
-          });
-          if (!response.ok) {
-            throw new Error(`HTTP error! Status: ${response.status}`);
-          }
-          // Clear the message input after a successful send
-          messageInput.value = "";
-        } catch (error) {
-          console.error("Error sending message:", error);
-        }
-      }
+    // When the server sends the "go" signal, update the UI.
+    socket.on('go', (data) => {
+      timerButton.innerText = 'Click!';
+      timerButton.className = 'go';
+      timerButton.disabled = false;
+    });
 
-      // Listen for a click event on the Send button.
-      sendBtn.addEventListener("click", sendMessage);
+    // When the timer button is clicked, send a click event to the server.
+    timerButton.addEventListener('click', () => {
+      socket.emit('click');
+      // Disable the button to avoid multiple clicks.
+      timerButton.disabled = true;
+    });
 
-      // Also allow sending a message by pressing the Enter key in the message input.
-      messageInput.addEventListener("keydown", (event) => {
-        if (event.key === "Enter") {
-          sendMessage();
-        }
-      });
+    // Display the reaction time when received.
+    socket.on('result', (data) => {
+      resultP.innerText = 'Your reaction time: ' + data.reactionTime + ' ms';
+    });
 
-      // Poll for new messages every 2 seconds
-      setInterval(fetchMessages, 2000);
-      // Initial fetch on page load
-      fetchMessages();
-    </script>
-  </body>
+    // Update the fastest reaction time info.
+    socket.on('newFastest', (data) => {
+      fastestP.innerText = 'Fastest reaction: ' + data.fastestReactionTime +
+                             ' ms by ' + data.fastestUser;
+    });
+
+    // Display error messages (e.g., if clicked too early).
+    socket.on('errorMessage', (data) => {
+      resultP.innerText = data.message;
+    });
+  </script>
+</body>
 </html>
