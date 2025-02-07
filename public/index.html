@@ -5,10 +5,10 @@
   <meta charset="UTF-8">
   <title>Reaction Timer</title>
   <style>
-    body {
-      text-align: center;
-      font-family: sans-serif;
-      margin-top: 50px;
+    body { 
+      text-align: center; 
+      font-family: sans-serif; 
+      margin-top: 30px; 
     }
     #timerButton {
       width: 200px;
@@ -20,47 +20,86 @@
     }
     .waiting { background-color: green; }
     .go { background-color: red; }
-    #startButton {
+    #startButton, #setNameButton {
       margin-top: 20px;
       font-size: 18px;
       padding: 10px 20px;
+    }
+    #nameInput {
+      font-size: 16px;
+      padding: 5px;
+    }
+    #attemptsList {
+      list-style-type: none;
+      padding: 0;
     }
   </style>
 </head>
 <body>
   <h1>Reaction Timer</h1>
-  <p id="info"></p>
+  
+  <!-- Name Section -->
+  <div id="nameSection">
+    <input type="text" id="nameInput" placeholder="Enter your name">
+    <button id="setNameButton">Set Name</button>
+  </div>
+  <p id="welcomeMessage"></p>
+  
+  <!-- Game Controls -->
   <button id="timerButton" class="waiting" disabled>Wait...</button>
   <p id="result"></p>
   <p id="fastest"></p>
-  <button id="startButton">Start Round</button>
+  <button id="startButton" disabled>Start Round</button>
 
-  <!-- Load Socket.IO from the server -->
+  <!-- Attempts List -->
+  <h2>All Reaction Times</h2>
+  <ul id="attemptsList"></ul>
+
+  <!-- Socket.IO -->
   <script src="/socket.io/socket.io.js"></script>
   <script>
     const socket = io();
-
     let userName = null;
-    const info = document.getElementById('info');
+
+    // DOM Elements
+    const nameInput = document.getElementById('nameInput');
+    const setNameButton = document.getElementById('setNameButton');
+    const welcomeMessage = document.getElementById('welcomeMessage');
     const timerButton = document.getElementById('timerButton');
     const resultP = document.getElementById('result');
     const fastestP = document.getElementById('fastest');
     const startButton = document.getElementById('startButton');
+    const attemptsList = document.getElementById('attemptsList');
 
-    // Receive the welcome message and display the user ID.
-    socket.on('welcome', (data) => {
-      userName = data.user;
-      info.innerText = 'Your ID: ' + userName;
+    // Send the name to the server.
+    setNameButton.addEventListener('click', () => {
+      const name = nameInput.value.trim();
+      if (name) {
+        userName = name;
+        socket.emit('setName', { name });
+        welcomeMessage.innerText = 'Welcome, ' + name + '!';
+        // Disable name input so it cannot be changed during the session.
+        nameInput.disabled = true;
+        setNameButton.disabled = true;
+        // Enable the Start Round button.
+        startButton.disabled = false;
+      }
     });
 
-    // When the "Start Round" button is clicked, notify the server.
+    // Display a welcome message (if received from the server).
+    socket.on('welcome', (data) => {
+      if (!userName) {
+        userName = data.user;
+        welcomeMessage.innerText = 'Welcome, ' + userName + '!';
+      }
+    });
+
+    // When Start Round is clicked, tell the server to start a new round.
     startButton.addEventListener('click', () => {
-      // Reset the UI for a new round.
       resultP.innerText = '';
       timerButton.innerText = 'Wait...';
       timerButton.className = 'waiting';
       timerButton.disabled = true;
-      // Tell the server to start the round.
       socket.emit('start');
     });
 
@@ -74,11 +113,10 @@
     // When the timer button is clicked, send a click event to the server.
     timerButton.addEventListener('click', () => {
       socket.emit('click');
-      // Disable the button to avoid multiple clicks.
       timerButton.disabled = true;
     });
 
-    // Display the reaction time when received.
+    // Display your reaction time when received.
     socket.on('result', (data) => {
       resultP.innerText = 'Your reaction time: ' + data.reactionTime + ' ms';
     });
@@ -89,7 +127,18 @@
                              ' ms by ' + data.fastestUser;
     });
 
-    // Display error messages (e.g., if clicked too early).
+    // Update the list of all reaction times.
+    socket.on('updateAttempts', (data) => {
+      const attempts = data.attempts;
+      attemptsList.innerHTML = ''; // Clear the list.
+      attempts.forEach(attempt => {
+        const li = document.createElement('li');
+        li.innerText = attempt.name + ': ' + attempt.reactionTime + ' ms';
+        attemptsList.appendChild(li);
+      });
+    });
+
+    // Display error messages (e.g., if clicked too early or name not set).
     socket.on('errorMessage', (data) => {
       resultP.innerText = data.message;
     });

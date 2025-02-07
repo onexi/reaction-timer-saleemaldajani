@@ -8,9 +8,10 @@ const app = express();
 const server = http.createServer(app);
 const io = socketIo(server);
 
-// Variables to store the fastest reaction data.
+// Variables to store the fastest reaction data and all attempts.
 let fastestReactionTime = Infinity;
 let fastestUser = null;
+const attempts = []; // Array of objects: { name, reactionTime }
 
 // Serve static files from the "public" directory.
 app.use(express.static('public'));
@@ -18,19 +19,26 @@ app.use(express.static('public'));
 // Listen for new client connections.
 io.on('connection', (socket) => {
   console.log('New client connected: ' + socket.id);
+  // Initially, the userName is null.
+  socket.userName = null;
 
-  // Use the socket ID as the user name (or you can prompt the user for one).
-  let userName = socket.id;
+  // Listen for the client's "setName" event.
+  socket.on('setName', (data) => {
+    socket.userName = data.name || socket.id;
+    console.log(`User set name to: ${socket.userName}`);
+    socket.emit('welcome', { user: socket.userName });
+  });
 
-  // Send a welcome message with the user’s ID.
-  socket.emit('welcome', { user: userName });
-
-  // Listen for the client’s "start" event to begin a round.
+  // Listen for the "start" event to begin a round.
   socket.on('start', () => {
-    console.log(`${userName} requested a new round.`);
+    if (!socket.userName) {
+      socket.emit('errorMessage', { message: 'Please set your name first!' });
+      return;
+    }
+    console.log(`${socket.userName} requested a new round.`);
     // Compute a random delay between 1 and 20 seconds.
     const delay = Math.floor(Math.random() * 19000) + 1000; // [1000, 20000] ms
-    console.log(`Random delay for ${userName}: ${delay} ms`);
+    console.log(`Random delay for ${socket.userName}: ${delay} ms`);
 
     // After the delay, send the "go" signal.
     setTimeout(() => {
@@ -38,7 +46,7 @@ io.on('connection', (socket) => {
       // Save the go time on the socket object.
       socket.goTime = goTime;
       socket.emit('go', { goTime });
-      console.log(`Sent GO signal to ${userName} at ${goTime}`);
+      console.log(`Sent GO signal to ${socket.userName} at ${goTime}`);
     }, delay);
   });
 
@@ -46,28 +54,34 @@ io.on('connection', (socket) => {
   socket.on('click', () => {
     // If the click comes before the "go" signal, reject it.
     if (!socket.goTime) {
-      console.log(`${userName} clicked too early.`);
+      console.log(`${socket.userName || socket.id} clicked too early.`);
       socket.emit('errorMessage', { message: 'Too early! Wait for the signal.' });
       return;
     }
     // Compute the reaction time.
     const clickTime = Date.now();
     const reactionTime = clickTime - socket.goTime;
-    console.log(`${userName} reacted in ${reactionTime} ms`);
+    console.log(`${socket.userName} reacted in ${reactionTime} ms`);
 
-    // Send the result back to the client.
-    socket.emit('result', { reactionTime, user: userName });
+    // Send the reaction time result back to the client.
+    socket.emit('result', { reactionTime, user: socket.userName });
 
-    // Update the fastest reaction if needed.
+    // Record the attempt.
+    attempts.push({ name: socket.userName, reactionTime });
+
+    // Broadcast the updated attempts list to all clients.
+    io.emit('updateAttempts', { attempts });
+
+    // Update the fastest reaction time if needed.
     if (reactionTime < fastestReactionTime) {
       fastestReactionTime = reactionTime;
-      fastestUser = userName;
+      fastestUser = socket.userName;
       // Broadcast the new fastest reaction to all connected clients.
       io.emit('newFastest', { fastestReactionTime, fastestUser });
-      console.log(`New fastest: ${reactionTime} ms by ${userName}`);
+      console.log(`New fastest: ${reactionTime} ms by ${socket.userName}`);
     }
 
-    // Clear the goTime so multiple clicks in one round are ignored.
+    // Clear the goTime so that multiple clicks in one round are ignored.
     socket.goTime = null;
   });
 
